@@ -1,0 +1,32 @@
+{
+  "name": "url-shortner",
+  "version": "1.0.0",
+  "description": "URL shortener API with Node.js, Express, MongoDB, API versioning, guest rate limiting, and OTP-based login with analytics.",
+  "main": "src/server.js",
+  "scripts": {
+    "dev": "nodemon src/server.js",
+    "start": "node src/server.js"
+  },
+  "keywords": [
+    "url-shortener",
+    "express",
+    "mongodb",
+    "api",
+    "otp",
+    "analytics"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.2",
+    "express-rate-limit": "^7.5.0",
+    "jsonwebtoken": "^9.0.2",
+    "mongoose": "^8.7.0",
+    "morgan": "^1.10.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.7"
+  }
+}

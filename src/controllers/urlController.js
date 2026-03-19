@@ -51,7 +51,8 @@ const createShortUrl = async (req, res) => {
     const url = await Url.create({
       code,
       originalUrl: normalizedOriginalUrl,
-      shortUrl
+      shortUrl,
+      owner: req.user ? req.user.id : null
     });
 
     return res.status(201).json({
@@ -70,11 +71,10 @@ const createShortUrl = async (req, res) => {
   }
 };
 
-// Public analytics endpoint: anyone with the code can see hit count.
 const getUrlAnalytics = async (req, res) => {
   try {
     const { code } = req.params;
-    const url = await Url.findOne({ code });
+    const url = await Url.findOne({ code, owner: req.user.id });
     if (!url) {
       return res.status(404).json({ message: 'URL not found' });
     }
@@ -97,8 +97,33 @@ const getUrlAnalytics = async (req, res) => {
   }
 };
 
+const getUserUrls = async (req, res) => {
+  try {
+    const urls = await Url.find({ owner: req.user.id }).sort({
+      createdAt: -1
+    });
+
+    return res.json({
+      message: 'User URLs fetched successfully',
+      data: urls.map((u) => ({
+        id: u._id,
+        code: u.code,
+        originalUrl: u.originalUrl,
+        shortUrl: u.shortUrl,
+        hits: u.hits,
+        createdAt: u.createdAt,
+        updatedAt: u.updatedAt
+      }))
+    });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ message: 'Failed to fetch URLs' });
+  }
+};
+
 module.exports = {
   createShortUrl,
-  getUrlAnalytics
+  getUrlAnalytics,
+  getUserUrls
 };
 

@@ -6,6 +6,7 @@ const createShortUrlLimiter = rateLimit({
   max: 5,
   standardHeaders: true,
   legacyHeaders: false,
+  skip: (req) => !!req.user, // skip if logged-in user
   message: {
     message: 'Daily limit reached. You can create up to 5 short URLs per day.'
   }

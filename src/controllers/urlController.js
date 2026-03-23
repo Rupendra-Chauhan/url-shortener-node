@@ -74,7 +74,7 @@ const createShortUrl = async (req, res) => {
 const getUrlAnalytics = async (req, res) => {
   try {
     const { code } = req.params;
-    const url = await Url.findOne({ code, owner: req.user.id });
+    const url = await Url.findOne({ code, owner: req.user.id }).lean();
     if (!url) {
       return res.status(404).json({ message: 'URL not found' });
     }
@@ -99,12 +99,27 @@ const getUrlAnalytics = async (req, res) => {
 
 const getUserUrls = async (req, res) => {
   try {
-    const urls = await Url.find({ owner: req.user.id }).sort({
-      createdAt: -1
-    });
+    const limit = Math.min(Math.max(Number(req.query.limit) || 20, 1), 100);
+    const page = Math.max(Number(req.query.page) || 1, 1);
+    const skip = (page - 1) * limit;
+
+    const [urls, total] = await Promise.all([
+      Url.find({ owner: req.user.id })
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .lean(),
+      Url.countDocuments({ owner: req.user.id })
+    ]);
 
     return res.json({
       message: 'User URLs fetched successfully',
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.max(Math.ceil(total / limit), 1)
+      },
       data: urls.map((u) => ({
         id: u._id,
         code: u.code,

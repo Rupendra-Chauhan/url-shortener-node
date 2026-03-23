@@ -2,10 +2,11 @@ const mongoose = require('mongoose');
 
 const connectDB = async () => {
   const uri = process.env.MONGODB_URI || 'mongodb://localhost:27017/url_shortner';
+  const isProduction = process.env.NODE_ENV === 'production';
 
   try {
     await mongoose.connect(uri, {
-      autoIndex: true
+      autoIndex: !isProduction
     });
     console.log('MongoDB connected');
   } catch (err) {

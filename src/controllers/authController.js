@@ -49,7 +49,7 @@ const verifyOtp = async (req, res) => {
 
     await Otp.deleteMany({ phone });
 
-    const secret = process.env.JWT_SECRET || 'dev_secret_change_me';
+    const secret = process.env.JWT_SECRET;
     const token = jwt.sign(
       { id: user._id.toString(), phone: user.phone },
       secret,
@@ -73,20 +73,21 @@ const verifyOtp = async (req, res) => {
 
 const updateProfile = async (req, res) => {
   try {
-    if (!req.user) {
-      return res.status(401).json({ message: 'Authentication required' });
-    }
-
     const { name } = req.body;
-    if (!name) {
+    const normalizedName = String(name || '').trim();
+    if (!normalizedName) {
       return res.status(400).json({ message: 'Name is required' });
     }
 
     const user = await User.findByIdAndUpdate(
       req.user.id,
-      { name },
+      { name: normalizedName },
       { new: true }
     );
+
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
 
     return res.json({
       message: 'Profile updated',

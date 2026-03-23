@@ -101,6 +101,26 @@ npm run dev
 
 The server will start on `http://localhost:4000` by default.
 
+### 5.4. Run with Docker
+
+This project is API-only and includes MongoDB using `docker-compose`.
+
+1. Create a local environment file for Docker (optional, but recommended):
+   - Copy `.env.example` to `.env` and set `JWT_SECRET` (and any overrides you want).
+   - Note: `.env` is gitignored.
+2. Start the stack:
+```bash
+docker compose up --build
+```
+3. API:
+   - Health check: `http://localhost:4000/health`
+   - Public redirect: `http://localhost:4000/<code>`
+
+To stop the stack:
+```bash
+docker compose down
+```
+
 ### 6. API reference
 
 #### 6.1. Health

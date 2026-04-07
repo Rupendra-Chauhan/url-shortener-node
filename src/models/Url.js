@@ -25,12 +25,18 @@ const urlSchema = new mongoose.Schema(
     hits: {
       type: Number,
       default: 0
+    },
+    fromQr: {
+      type: Boolean,
+      default: false,
+      index: true
     }
   },
   { timestamps: true }
 );
 
 urlSchema.index({ owner: 1, createdAt: -1 });
+urlSchema.index({ owner: 1, fromQr: 1, createdAt: -1 });
 
 module.exports = mongoose.model('Url', urlSchema);
 

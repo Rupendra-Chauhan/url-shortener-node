@@ -2,18 +2,29 @@ const express = require('express');
 const { createGuestDailyCreateLimiter } = require('../../middleware/guestRateLimit');
 const { requireAuth } = require('../../middleware/auth');
 const { createShortUrl, getUrlAnalytics, getUserUrls } = require('../../controllers/urlController');
+const {
+  generateQr,
+  generateQrDirect,
+  getQrAnalytics,
+  getUserQrTracks
+} = require('../../controllers/qrController');
 
 const router = express.Router();
-const createShortUrlLimiter = createGuestDailyCreateLimiter();
+const guestShortenLimiter = createGuestDailyCreateLimiter();
+const guestQrLimiter = createGuestDailyCreateLimiter();
 
-// Public: anyone can shorten URLs (with daily limit)
-router.post('/shorten', createShortUrlLimiter, createShortUrl);
+router.post('/shorten', guestShortenLimiter, createShortUrl);
 
-// Logged-in only: list my URLs
+router.post('/qr/direct', requireAuth, generateQrDirect);
+
+router.post('/qr', guestQrLimiter, generateQr);
+
+router.get('/qr/list', requireAuth, getUserQrTracks);
+
+router.get('/qr/:code', getQrAnalytics);
+
 router.get('/', requireAuth, getUserUrls);
 
-// Logged-in only: get analytics for my short code
-router.get('/:code', requireAuth, getUrlAnalytics);
+router.get('/:code', getUrlAnalytics);
 
 module.exports = router;
-

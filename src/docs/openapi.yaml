@@ -1,0 +1,856 @@
+openapi: 3.0.3
+info:
+  title: URL Shortener API
+  description: |
+    **For reviewers / recruiters:** Open **Interactive docs** at `/api/docs` on a running server. Try *Shorten* and *tracked QR* without auth, then *Authorize* with a JWT from *verify-otp* to test owned links and *direct QR*.
+
+    REST API for shortening URLs, OTP login, tracked QR (free), and member-only direct QR.
+
+    **Free (no login)**
+    - **Shorten** (`POST /api/v1/urls/shorten`) and **tracked QR** (`POST /api/v1/urls/qr`, default `track: true`) with a daily guest limit per IP. Optional JWT attaches links to your account.
+    - **Analytics** for guest-created links: `GET /api/v1/urls/{code}` and `GET /api/v1/urls/qr/{code}` without login if the link has no owner (know the code).
+
+    **After login**
+    - Same shorten and tracked QR, with links stored under your account. **`POST /api/v1/urls/qr/direct`** (and `track: false` on `POST /qr`) encode the real URL in the QR only — **login required**.
+    - **Reports** (`GET /api/v1/report/me`) are **disabled** (403).
+
+    **Always public:** `GET /health`, `GET /{code}` redirect.
+  version: 1.0.0
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  - url: http://localhost:4000
+    description: Local development
+  - url: '{protocol}://{host}'
+    description: Custom host (set protocol and host to match your deployment)
+    variables:
+      protocol:
+        default: https
+        enum:
+          - https
+          - http
+      host:
+        default: api.example.com
+
+tags:
+  - name: Health
+    description: Service liveness
+  - name: Authentication
+    description: OTP login and profile (JWT after verify)
+  - name: URLs
+    description: Short links — create is public; list “mine” needs JWT
+  - name: QR codes
+    description: Generate QR images or JSON with `qrDataUrl`
+  - name: Analytics
+    description: Per-link and QR-tracked short link stats
+  - name: Report
+    description: Disabled — returns 403
+  - name: Redirects
+    description: Public HTTP redirects (not versioned under `/api/v1`)
+
+paths:
+  /health:
+    get:
+      tags: [Health]
+      summary: Health check
+      description: Returns service status. No authentication required.
+      operationId: getHealth
+      responses:
+        '200':
+          description: Service is running
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+              example:
+                status: ok
+
+  /api/v1/auth/request-otp:
+    post:
+      tags: [Authentication]
+      summary: Request OTP
+      description: |
+        Generates a one-time password for the given phone number. OTP is returned in the response (development-style; replace with SMS in production).
+      operationId: requestOtp
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RequestOtpBody'
+            example:
+              phone: '+15551234567'
+      responses:
+        '201':
+          description: OTP created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RequestOtpResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+  /api/v1/auth/verify-otp:
+    post:
+      tags: [Authentication]
+      summary: Verify OTP and obtain JWT
+      description: Validates OTP and returns a Bearer token (7-day expiry) and user profile.
+      operationId: verifyOtp
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VerifyOtpBody'
+            example:
+              phone: '+15551234567'
+              otp: '123456'
+      responses:
+        '200':
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VerifyOtpResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+  /api/v1/auth/profile:
+    put:
+      tags: [Authentication]
+      summary: Update profile
+      description: Updates the authenticated user's display name.
+      operationId: updateProfile
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateProfileBody'
+            example:
+              name: Jane Doe
+      responses:
+        '200':
+          description: Profile updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UpdateProfileResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+  /api/v1/urls/shorten:
+    post:
+      tags: [URLs]
+      summary: Create short URL
+      description: |
+        Free without login (guest daily limit). Send **Bearer** to attach the link to your account (visible in “my URLs”).
+      operationId: createShortUrl
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/AuthorizationOptional'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ShortenBody'
+            example:
+              originalUrl: https://example.com/path
+      responses:
+        '201':
+          description: Short URL created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShortenResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '429':
+          $ref: '#/components/responses/TooManyRequestsGuest'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+  /api/v1/urls:
+    get:
+      tags: [URLs]
+      summary: List my short URLs
+      description: Paginated list of short links owned by the authenticated user.
+      operationId: listMyUrls
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: URLs retrieved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserUrlsResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+  /api/v1/urls/{code}:
+    get:
+      tags: [Analytics]
+      summary: Short URL analytics
+      description: |
+        Guest-created link (no owner): readable without auth. Owned link: **Bearer** must match owner.
+      operationId: getUrlAnalytics
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/AuthorizationOptional'
+        - name: code
+          in: path
+          required: true
+          description: 8-character short code (not the reserved path `qr` for this router — use dedicated QR analytics for tracked QR links).
+          schema:
+            type: string
+            example: Ab3xY9zQ
+      responses:
+        '200':
+          description: Analytics payload
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UrlAnalyticsResponse'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+  /api/v1/urls/qr:
+    post:
+      tags: [QR codes]
+      summary: Generate QR (tracked by default)
+      description: |
+        **Tracked** (default): free without login (guest daily limit); optional Bearer attaches the short link to your account.
+
+        **`track: false`**: encodes the destination URL directly — **JWT required** (same as `POST /qr/direct`).
+      operationId: generateQr
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/AuthorizationOptional'
+        - $ref: '#/components/parameters/QrFormat'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/QrGenerateBody'
+            examples:
+              tracked:
+                summary: Tracked (default)
+                value:
+                  url: https://example.com/page
+              untracked:
+                summary: Direct URL in QR
+                value:
+                  url: https://example.com/page
+                  track: false
+      responses:
+        '200':
+          description: PNG image or JSON (see format query)
+          content:
+            image/png:
+              schema:
+                type: string
+                format: binary
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QrGenerateJsonResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/TooManyRequestsGuest'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+  /api/v1/urls/qr/direct:
+    post:
+      tags: [QR codes]
+      summary: Generate direct QR
+      description: |
+        QR encodes the normalized target URL only — scanners open the site directly without your redirect service. No short link, no analytics.
+      operationId: generateQrDirect
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/QrFormat'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/QrDirectBody'
+            example:
+              url: https://example.com/landing
+      responses:
+        '200':
+          description: PNG or JSON with `qrDataUrl`
+          content:
+            image/png:
+              schema:
+                type: string
+                format: binary
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QrDirectJsonResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+  /api/v1/urls/qr/list:
+    get:
+      tags: [QR codes]
+      summary: List my tracked QR short links
+      description: Paginated list of short links created via `POST /api/v1/urls/qr` with tracking (`fromQr` records only).
+      operationId: listMyQrTracks
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: List of tracked QR-backed short links
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QrListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+  /api/v1/urls/qr/{code}:
+    get:
+      tags: [Analytics]
+      summary: Tracked QR short link analytics
+      description: |
+        Guest tracked-QR link (no owner): readable without auth. Owned: **Bearer** must match.
+      operationId: getQrAnalytics
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/AuthorizationOptional'
+        - name: code
+          in: path
+          required: true
+          schema:
+            type: string
+          example: Ab3xY9zQ
+      responses:
+        '200':
+          description: QR short link analytics
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QrAnalyticsResponse'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+  /api/v1/report/me:
+    get:
+      tags: [Report]
+      summary: Dashboard report (disabled)
+      description: This endpoint always returns **403**; reporting is not available to users.
+      operationId: getMyReport
+      security: []
+      responses:
+        '403':
+          description: Reports disabled
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorMessage'
+              example:
+                message: Reports are not available.
+
+  /{code}:
+    get:
+      tags: [Redirects]
+      summary: Resolve short code (redirect)
+      description: |
+        Public redirect endpoint (root path, **not** under `/api/v1`). Increments hit counter and redirects with `302` to `originalUrl`.
+      operationId: redirectByCode
+      parameters:
+        - name: code
+          in: path
+          required: true
+          schema:
+            type: string
+          example: Ab3xY9zQ
+      responses:
+        '302':
+          description: Found — redirects to the original URL
+          headers:
+            Location:
+              schema:
+                type: string
+                format: uri
+        '404':
+          description: Unknown code
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorMessage'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Token from `POST /api/v1/auth/verify-otp` (valid 7 days).
+
+  parameters:
+    Page:
+      name: page
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+      description: Page number (1-based)
+    Limit:
+      name: limit
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+      description: Page size
+    QrFormat:
+      name: format
+      in: query
+      schema:
+        type: string
+        enum: [png, json]
+        default: png
+      description: >-
+        Use json for a JSON body including qrDataUrl; omit or png for raw PNG image bytes.
+    AuthorizationOptional:
+      name: Authorization
+      in: header
+      required: false
+      schema:
+        type: string
+        example: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+      description: Optional Bearer JWT to own the created resource or access owned analytics.
+
+  responses:
+    BadRequest:
+      description: Invalid input
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorMessage'
+          example:
+            message: Invalid URL. Provide a valid URL like https://example.com or www.example.com
+    Unauthorized:
+      description: Missing or invalid Bearer token
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorMessage'
+          example:
+            message: Authentication required
+    Forbidden:
+      description: Authenticated but not allowed to access this resource
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorMessage'
+          example:
+            message: Forbidden
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorMessage'
+    ServerError:
+      description: Unexpected server error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorMessage'
+    TooManyRequestsGuest:
+      description: Guest daily creation limit exceeded
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorMessage'
+          example:
+            message: Daily guest limit reached. Please log in to continue.
+
+  schemas:
+    ErrorMessage:
+      type: object
+      properties:
+        message:
+          type: string
+      required: [message]
+
+    HealthResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: ok
+      required: [status]
+
+    RequestOtpBody:
+      type: object
+      required: [phone]
+      properties:
+        phone:
+          type: string
+          description: Phone identifier (format as stored by your app)
+          example: '+15551234567'
+
+    RequestOtpResponse:
+      type: object
+      properties:
+        message:
+          type: string
+        phone:
+          type: string
+        otp:
+          type: string
+          description: One-time password (for development; use SMS in production)
+
+    VerifyOtpBody:
+      type: object
+      required: [phone, otp]
+      properties:
+        phone:
+          type: string
+        otp:
+          type: string
+
+    AuthUser:
+      type: object
+      properties:
+        id:
+          type: string
+        phone:
+          type: string
+        name:
+          type: string
+          nullable: true
+
+    VerifyOtpResponse:
+      type: object
+      properties:
+        message:
+          type: string
+        token:
+          type: string
+          description: JWT for Authorization header
+        user:
+          $ref: '#/components/schemas/AuthUser'
+
+    UpdateProfileBody:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+
+    UpdateProfileResponse:
+      type: object
+      properties:
+        message:
+          type: string
+        user:
+          $ref: '#/components/schemas/AuthUser'
+
+    ShortenBody:
+      type: object
+      required: [originalUrl]
+      properties:
+        originalUrl:
+          type: string
+          format: uri
+          description: Target URL (`https://` optional; `www.` accepted)
+
+    ShortenData:
+      type: object
+      properties:
+        id:
+          type: string
+        code:
+          type: string
+        originalUrl:
+          type: string
+        shortUrl:
+          type: string
+        hits:
+          type: integer
+        fromQr:
+          type: boolean
+          description: false for POST /shorten; true when row was created via tracked QR
+
+    ShortenResponse:
+      type: object
+      properties:
+        message:
+          type: string
+        data:
+          $ref: '#/components/schemas/ShortenData'
+
+    UrlListItem:
+      type: object
+      properties:
+        id:
+          type: string
+        code:
+          type: string
+        originalUrl:
+          type: string
+        shortUrl:
+          type: string
+        hits:
+          type: integer
+        fromQr:
+          type: boolean
+          description: Distinguishes shorten-only vs QR-created short links
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    Pagination:
+      type: object
+      properties:
+        page:
+          type: integer
+        limit:
+          type: integer
+        total:
+          type: integer
+        totalPages:
+          type: integer
+
+    UserUrlsResponse:
+      type: object
+      properties:
+        message:
+          type: string
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/UrlListItem'
+
+    UrlAnalyticsResponse:
+      type: object
+      properties:
+        message:
+          type: string
+        data:
+          allOf:
+            - $ref: '#/components/schemas/UrlListItem'
+
+    QrGenerateBody:
+      type: object
+      required: [url]
+      properties:
+        url:
+          type: string
+          description: Destination URL to encode (or to shorten when tracked)
+        track:
+          type: boolean
+          default: true
+          description: >-
+            When false, QR encodes the destination URL directly; requires Bearer JWT (same as POST /qr/direct).
+
+    QrGenerateJsonResponse:
+      type: object
+      properties:
+        message:
+          type: string
+        data:
+          type: object
+          properties:
+            url:
+              type: string
+            tracked:
+              type: boolean
+            qrDataUrl:
+              type: string
+              description: data:image/png;base64,...
+            id:
+              type: string
+            code:
+              type: string
+            originalUrl:
+              type: string
+            shortUrl:
+              type: string
+            hits:
+              type: integer
+          description: When tracked, includes id/code/shortUrl/hits; when not tracked, only url/tracked/qrDataUrl.
+
+    QrDirectBody:
+      type: object
+      required: [url]
+      properties:
+        url:
+          type: string
+
+    QrDirectJsonResponse:
+      type: object
+      properties:
+        message:
+          type: string
+        data:
+          type: object
+          required: [url, qrDataUrl, mode, tracked]
+          properties:
+            url:
+              type: string
+            qrDataUrl:
+              type: string
+            mode:
+              type: string
+              enum: [direct]
+            tracked:
+              type: boolean
+              example: false
+
+    QrListResponse:
+      type: object
+      properties:
+        message:
+          type: string
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/UrlListItem'
+
+    QrAnalyticsResponse:
+      type: object
+      properties:
+        message:
+          type: string
+        data:
+          type: object
+          properties:
+            id:
+              type: string
+            code:
+              type: string
+            originalUrl:
+              type: string
+            shortUrl:
+              type: string
+            hits:
+              type: integer
+            fromQr:
+              type: boolean
+              description: Always true for this endpoint (only `fromQr` links are returned)
+            owner:
+              type: string
+              nullable: true
+            createdAt:
+              type: string
+              format: date-time
+            updatedAt:
+              type: string
+              format: date-time
+
+    ReportSummary:
+      type: object
+      properties:
+        totalUrls:
+          type: integer
+        totalHits:
+          type: integer
+
+    UrlCreatedByDay:
+      type: object
+      properties:
+        date:
+          type: string
+          example: '2026-04-01'
+        urlsCreated:
+          type: integer
+
+    ReportUrlSnippet:
+      type: object
+      properties:
+        id:
+          type: string
+        code:
+          type: string
+        originalUrl:
+          type: string
+        shortUrl:
+          type: string
+        hits:
+          type: integer
+        createdAt:
+          type: string
+          format: date-time
+
+    ReportResponse:
+      type: object
+      properties:
+        message:
+          type: string
+        data:
+          type: object
+          properties:
+            summary:
+              $ref: '#/components/schemas/ReportSummary'
+            urlsCreatedLast7Days:
+              type: array
+              items:
+                $ref: '#/components/schemas/UrlCreatedByDay'
+            topUrls:
+              type: array
+              items:
+                $ref: '#/components/schemas/ReportUrlSnippet'
+            recentUrls:
+              type: array
+              items:
+                $ref: '#/components/schemas/ReportUrlSnippet'

@@ -1,32 +1,8 @@
 const Url = require('../models/Url');
+const { normalizeUrl } = require('../utils/urlNormalize');
+const { createShortUrlRecord } = require('../services/shortLinkService');
 
-const generateCode = (length = 8) => {
-  const chars =
-    'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-  let result = '';
-  for (let i = 0; i < length; i += 1) {
-    const index = Math.floor(Math.random() * chars.length);
-    result += chars[index];
-  }
-  return result;
-};
-
-const normalizeUrl = (input) => {
-  const value = String(input || '').trim();
-  if (!value) return null;
-
-  const withProtocol = /^https?:\/\//i.test(value) ? value : `https://${value}`;
-
-  try {
-    const parsed = new URL(withProtocol);
-    if (!/^https?:$/i.test(parsed.protocol)) return null;
-    return parsed.toString();
-  } catch {
-    return null;
-  }
-};
-
-// Create a new short URL. Public: no authentication required.
+// Create a new short URL. Public with guest rate limit; optional JWT sets owner.
 const createShortUrl = async (req, res) => {
   try {
     const { originalUrl } = req.body;
@@ -45,14 +21,11 @@ const createShortUrl = async (req, res) => {
     const baseUrl =
       process.env.BASE_URL || `${req.protocol}://${req.get('host')}`;
 
-    const code = generateCode(8);
-    const shortUrl = `${baseUrl}/${code}`;
-
-    const url = await Url.create({
-      code,
-      originalUrl: normalizedOriginalUrl,
-      shortUrl,
-      owner: req.user ? req.user.id : null
+    const url = await createShortUrlRecord({
+      baseUrl,
+      normalizedUrl: normalizedOriginalUrl,
+      ownerId: req.user ? req.user.id : null,
+      fromQr: false
     });
 
     return res.status(201).json({
@@ -62,7 +35,8 @@ const createShortUrl = async (req, res) => {
         code: url.code,
         originalUrl: url.originalUrl,
         shortUrl: url.shortUrl,
-        hits: url.hits
+        hits: url.hits,
+        fromQr: url.fromQr
       }
     });
   } catch (err) {
@@ -71,12 +45,19 @@ const createShortUrl = async (req, res) => {
   }
 };
 
+// Guest links (no owner): public by code. Owned links: Bearer must match owner.
 const getUrlAnalytics = async (req, res) => {
   try {
     const { code } = req.params;
-    const url = await Url.findOne({ code, owner: req.user.id }).lean();
+    const url = await Url.findOne({ code }).lean();
     if (!url) {
       return res.status(404).json({ message: 'URL not found' });
+    }
+
+    if (url.owner) {
+      if (!req.user || String(url.owner) !== req.user.id) {
+        return res.status(403).json({ message: 'Forbidden' });
+      }
     }
 
     return res.json({
@@ -87,6 +68,7 @@ const getUrlAnalytics = async (req, res) => {
         originalUrl: url.originalUrl,
         shortUrl: url.shortUrl,
         hits: url.hits,
+        fromQr: url.fromQr,
         createdAt: url.createdAt,
         updatedAt: url.updatedAt
       }
@@ -126,6 +108,7 @@ const getUserUrls = async (req, res) => {
         originalUrl: u.originalUrl,
         shortUrl: u.shortUrl,
         hits: u.hits,
+        fromQr: u.fromQr,
         createdAt: u.createdAt,
         updatedAt: u.updatedAt
       }))
@@ -141,4 +124,3 @@ module.exports = {
   getUrlAnalytics,
   getUserUrls
 };
-

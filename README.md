@@ -1,216 +1,148 @@
-## URL Shortener API (Node + MongoDB)
+# URL Shortener & QR API
 
-Backend-only URL shortener built with **Node.js**, **Express**, and **MongoDB**.
+Backend service built with **Node.js**, **Express**, and **MongoDB**. It shortens URLs, serves **public redirects** with hit counting, generates **QR codes** (tracked short links or member-only “direct” QR), and supports **OTP + JWT** login.
 
-This version is designed for interviews/recruiters:
+**Interactive API docs (Swagger UI):** after you start the server, open **`http://localhost:4000/api/docs`** (adjust host/port). Recruiters can explore every endpoint, schemas, and try requests without reading this file first.
 
-- **Guests** can **shorten URLs** (rate-limited) and use **public redirects**
-- **Logged-in users** (OTP + JWT) can **see analytics** (hit counts) for the URLs they created
+---
 
-### 1. What this project demonstrates (for recruiters)
+## What this project demonstrates
 
-- **Clean API design** with versioned routes under `/api/v1`
-- **Clear separation of concerns**:
-  - `server.js` – bootstrap and public redirect route
-  - `app.js` – Express configuration and middleware
-  - `routes` – HTTP routing
-  - `controllers` – business logic
-  - `models` – MongoDB schemas
-- **Production-style patterns**:
-  - Centralized MongoDB connection
-  - Rate limiting using `express-rate-limit`
-  - URL normalization and validation
-  - OTP login + JWT auth
-  - Analytics via a `hits` counter (per-user ownership)
+| Area | Details |
+|------|---------|
+| **API design** | Versioned routes under `/api/v1`, consistent JSON errors, OpenAPI 3 spec |
+| **Data model** | One `Url` collection for both “paste link” shortens and QR-backed short links (`fromQr` flag) |
+| **Auth** | Optional Bearer JWT on public create endpoints; required where product rules say so |
+| **Rate limiting** | Guests: separate daily limits for **shorten** vs **tracked QR** (logged-in users skip) |
+| **Docs** | Swagger UI + `openapi.yaml`; CORS tuned for local Swagger on the API port |
+| **Structure** | `routes` → `controllers` → `models` / `services` / `middleware` |
 
-### 2. Features at a glance
+---
 
-- **API-only backend** (no frontend)
-- **API versioning** under `/api/v1`
-- **Main APIs**:
-  - **POST** `/api/v1/urls/shorten` – create a short URL (guest or logged-in)
-  - **GET** `/:code` – public redirect to the original URL and increment hit count
-- **Auth & analytics**:
-  - **POST** `/api/v1/auth/request-otp` – request OTP
-  - **POST** `/api/v1/auth/verify-otp` – verify OTP and receive JWT
-  - **GET** `/api/v1/urls` – list my URLs (logged-in only)
-  - **GET** `/api/v1/urls/:code` – analytics for my short URL (logged-in only)
-- **Rate limiting (guests)**:
-  - Guests can create **up to 5 short URLs per 24 hours per IP**
-  - Logged-in users are not limited by this guest limiter
+## Features: short links vs QR (at a glance)
 
-### 3. Tech stack
+| Capability | Without login | With JWT |
+|------------|---------------|----------|
+| **Create short URL** | Yes (`POST /urls/shorten`, guest limit) | Yes (link owned by user) |
+| **Open short link** | `GET /:code` → redirect + `hits++` | Same |
+| **Analytics** `GET /urls/{code}` | Yes if link has **no owner** | Yes if you **own** the link |
+| **Tracked QR** (default) | Yes (`POST /urls/qr`, guest limit); QR encodes **short URL** | Same + ownership |
+| **Direct QR** (raw URL in image) | No | Yes (`POST /urls/qr/direct` or `track: false` on `/qr`) |
+| **QR analytics** `GET /urls/qr/{code}` | Yes if **guest** tracked link | Yes if **you own** it |
+| **List “my” URLs / QR** | No | `GET /urls`, `GET /urls/qr/list` |
+| **Dashboard report** | `GET /report/me` → **403** (intentionally disabled) | Same |
 
-- **Runtime**: Node.js
-- **Framework**: Express
-- **Database**: MongoDB (via Mongoose)
-- **Rate limiting**: `express-rate-limit`
-- **Other libraries**: `dotenv`, `morgan`, `cors`
+---
 
-### 4. Architecture overview
+## Tech stack
 
-- **Entry point**: `src/server.js`
-  - Loads environment variables
-  - Connects to MongoDB
-  - Defines public redirect route `GET /:code`
-  - Starts the Express app
-- **App setup**: `src/app.js`
-  - Common middlewares (`cors`, `express.json`, `morgan`)
-  - Health check `GET /health`
-  - API versioning under `/api/v1`
-- **Config**: `src/config/db.js`
-  - Central MongoDB connection using Mongoose
-- **Models**:
-  - `User` – `{ phone, name }`
-  - `Otp` – `{ phone, code, expiresAt }` (TTL index cleanup)
-  - `Url` – `{ code, originalUrl, shortUrl, owner, hits }`
-- **Controllers**:
-  - `urlController` – create short URLs and expose analytics
-  - `redirectController` – handle public redirects and increment `hits`
-  - `authController` – OTP request/verify, JWT issuing, profile update
-- **Routing**:
-  - `src/routes/v1/index.js` – wraps all v1 routes
-  - `src/routes/v1/auth.js` – OTP login + profile
-  - `src/routes/v1/url.js` – shortener (public), analytics (logged-in)
+- **Runtime:** Node.js 18+
+- **Framework:** Express 4
+- **Database:** MongoDB (Mongoose)
+- **Auth:** OTP (demo: returned in API) + JWT (`jsonwebtoken`)
+- **QR:** `qrcode` (PNG or JSON `qrDataUrl`)
+- **API docs:** `swagger-ui-express`, `js-yaml`
+- **Security / ops:** `helmet`, `cors`, `morgan`, `express-rate-limit`
 
-### 5. Getting started
+---
 
-#### 5.1. Install dependencies
+## Project layout
+
+```
+src/
+  server.js              # dotenv, DB connect, listen, mounts GET /:code redirect
+  app.js                 # middleware, /api/v1, Swagger at /api/docs
+  config/db.js           # Mongoose connect
+  models/                # User, Otp, Url (+ fromQr on Url)
+  routes/v1/             # auth, urls (shorten + all QR routes), report
+  controllers/           # url, qr, redirect, auth, report (stub)
+  services/shortLinkService.js   # unique 8-char code + Url.create (retry on collision)
+  utils/urlNormalize.js          # shared URL validation
+  middleware/auth.js, guestRateLimit.js
+  docs/openapi.yaml      # Source of truth mirrored in Swagger UI
+```
+
+---
+
+## Quick start
+
+### 1. Install
 
 ```bash
-cd d:\Node\url-shortner
 npm install
 ```
 
-#### 5.2. Configure environment
+### 2. Environment
 
-Create a `.env` file (or update the existing one) with:
+Copy `.env.example` to `.env` and set at least:
 
-- **`MONGODB_URI`** – connection string to your MongoDB instance  
-  - Example: `mongodb://localhost:27017/url_shortner`
-- **`BASE_URL`** – base URL for generating short links  
-  - Example: `http://localhost:4000`
-- **`JWT_SECRET`** – secret for signing JWTs (required for auth)
-- **`PORT`** – defaults to `4000` if not set
+| Variable | Purpose |
+|----------|---------|
+| `MONGODB_URI` | Mongo connection string |
+| `JWT_SECRET` | Required to start the server (sign/verify JWT) |
+| `BASE_URL` | Public base for generated short links (e.g. `http://localhost:4000`) |
+| `CORS_ORIGIN` | Optional comma-separated browser origins; dev merges `localhost` + `BASE_URL` origin for Swagger |
 
-#### 5.3. Run the server
+### 3. Run
 
 ```bash
 npm run dev
 ```
 
-The server will start on `http://localhost:4000` by default.
+- Health: `GET /health`
+- **Swagger:** `GET /api/docs`
+- Redirect: `GET /<code>`
 
-### 5.4. Run with Docker
+### 4. Docker
 
-This project is API-only and includes MongoDB using `docker-compose`.
-
-1. Create a local environment file for Docker (optional, but recommended):
-   - Copy `.env.example` to `.env` and set `JWT_SECRET` (and any overrides you want).
-   - Note: `.env` is gitignored.
-2. Start the stack:
 ```bash
 docker compose up --build
 ```
-3. API:
-   - Health check: `http://localhost:4000/health`
-   - Public redirect: `http://localhost:4000/<code>`
 
-To stop the stack:
-```bash
-docker compose down
-```
+---
 
-### 6. API reference
+## Typical flows (for demos)
 
-#### 6.1. Health
+1. **Guest shorten** — `POST /api/v1/urls/shorten` with `{ "originalUrl": "https://example.com" }` → open `shortUrl` or `GET /{code}`.
+2. **Guest tracked QR** — `POST /api/v1/urls/qr` with `{ "url": "https://example.com" }` → QR points at short link; hits count on redirect.
+3. **Login** — `POST .../auth/request-otp` then `POST .../auth/verify-otp` → use **Authorize** in Swagger with `Bearer <token>`.
+4. **Member direct QR** — `POST /api/v1/urls/qr/direct` with JWT → QR encodes the long URL only (no short link / no server hit count).
+5. **Analytics** — `GET /api/v1/urls/{code}` or `GET /api/v1/urls/qr/{code}`: public for guest-created links; **403** if the link is owned by someone else.
 
-- **GET** `/health`  
-  - **Response**: `{ "status": "ok" }`
+---
 
-#### 6.2. Create a short URL
+## API index (summary)
 
-- **POST** `/api/v1/urls/shorten`  
-  - **Guest rate limit**: max **5 requests per IP per 24 hours**
-  - **Body**:
-    - `{ "originalUrl": "https://example.com" }`
-  - **Behavior**:
-    - Normalizes the URL (adds `https://` if missing, validates protocol).
-    - Generates an 8-character alphanumeric short code.
-    - Saves `{ code, originalUrl, shortUrl, hits }` to MongoDB.
-  - **Response example**:
-    ```json
-    {
-      "message": "URL shortened successfully",
-      "data": {
-        "id": "665e7e5b7e6e7e5b7e6e7e5b",
-        "code": "AbCdEf12",
-        "originalUrl": "https://example.com",
-        "shortUrl": "http://localhost:4000/AbCdEf12",
-        "hits": 0
-      }
-    }
-    ```
+| Method | Path | Notes |
+|--------|------|--------|
+| GET | `/health` | Liveness |
+| GET | `/api/docs` | Swagger UI |
+| GET | `/api/docs/openapi.yaml` | Raw spec |
+| POST | `/api/v1/urls/shorten` | Create short link |
+| POST | `/api/v1/urls/qr` | Tracked QR (default) or `track:false` + JWT |
+| POST | `/api/v1/urls/qr/direct` | Direct QR (**JWT**) |
+| GET | `/api/v1/urls/qr/list` | My tracked QR links (**JWT**) |
+| GET | `/api/v1/urls/qr/:code` | QR short-link analytics |
+| GET | `/api/v1/urls` | My URLs (**JWT**) |
+| GET | `/api/v1/urls/:code` | Short-link analytics |
+| POST | `/api/v1/auth/request-otp`, `/verify-otp` | OTP login |
+| PUT | `/api/v1/auth/profile` | Update name (**JWT**) |
+| GET | `/api/v1/report/me` | Always **403** |
+| GET | `/:code` | Public redirect |
 
-#### 6.3. Redirect (public)
+Full request/response shapes: **`src/docs/openapi.yaml`** or **Swagger UI**.
 
-- **GET** `/:code`  
-  - **Behavior**:
-    - Looks up the `Url` by `code`.
-    - Increments the `hits` counter.
-    - Issues an HTTP redirect to `originalUrl`.
+---
 
-#### 6.4. Auth (OTP + JWT)
+## Notes for recruiters
 
-- **POST** `/api/v1/auth/request-otp`
-  - **Body**: `{ "phone": "1234567890" }`
-  - **Behavior**: creates a 6-digit OTP valid for 10 minutes (returned in response for demo).
+- **Single `Url` model** powers both the shortener and tracked QR; `fromQr` separates creation paths for listing and analytics.
+- **Guest limits** are independent for shorten vs QR to avoid one feature starving the other.
+- **Reports** are stubbed off to keep scope focused on links, QR, and auth; the endpoint remains for API stability.
+- **Production hardening** left as obvious next steps: SMS for OTP, stricter CORS in prod, admin-only reports, richer analytics.
 
-- **POST** `/api/v1/auth/verify-otp`
-  - **Body**: `{ "phone": "1234567890", "otp": "123456" }`
-  - **Behavior**: verifies OTP, creates user if needed, returns JWT.
+---
 
-#### 6.5. Analytics (logged-in users only)
+## License
 
-- **GET** `/api/v1/urls`
-  - **Headers**: `Authorization: Bearer <token>`
-  - **Behavior**: returns URLs created by the logged-in user.
-
-- **GET** `/api/v1/urls/:code`  
-  - **Headers**: `Authorization: Bearer <token>`
-  - **Behavior**:
-    - Looks up the `Url` by `code` **and owner = current user**.
-    - Returns analytics including `hits`, `createdAt`, and `updatedAt`.
-  - **Response example**:
-    ```json
-    {
-      "message": "URL analytics fetched successfully",
-      "data": {
-        "id": "665e7e5b7e6e7e5b7e6e7e5b",
-        "code": "AbCdEf12",
-        "originalUrl": "https://example.com",
-        "shortUrl": "http://localhost:4000/AbCdEf12",
-        "hits": 42,
-        "createdAt": "2024-05-01T10:00:00.000Z",
-        "updatedAt": "2024-05-02T12:34:56.000Z"
-      }
-    }
-    ```
-
-### 7. Example usage flow
-
-1. **Create a short URL as guest**
-   - `POST /api/v1/urls/shorten` with `{ "originalUrl": "https://example.com" }`.
-2. **Use the short URL**
-   - Open `GET /<code>` in the browser (for example `http://localhost:4000/AbCdEf12`).
-3. **Log in to view analytics**
-   - `POST /api/v1/auth/request-otp` then `POST /api/v1/auth/verify-otp`.
-4. **Check hit count and metadata (logged-in)**
-   - `GET /api/v1/urls/<code>` with `Authorization: Bearer <token>`.
-
-### 8. Notes for recruiters
-
-- **Focus**: Demonstrates URL shortening + redirects for guests, and authenticated analytics for users.
-- **Structure**: Clear folder separation (config / models / controllers / middleware / routes) to stay easy to navigate during code review interviews.
-- **Extensibility**: Easy to extend with richer analytics (per-day breakdown, referrers) or a frontend (e.g. Next.js UI) without changing the core API design.
-
+MIT

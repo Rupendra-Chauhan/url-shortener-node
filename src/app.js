@@ -32,6 +32,11 @@ const buildCorsAllowedOrigins = () => {
   if (process.env.NODE_ENV !== 'production') {
     set.add(`http://localhost:${port}`);
     set.add(`http://127.0.0.1:${port}`);
+    // Common frontend dev server origins
+    set.add('http://localhost:5173');
+    set.add('http://127.0.0.1:5173');
+    set.add('http://localhost:3000');
+    set.add('http://127.0.0.1:3000');
   }
   return set;
 };

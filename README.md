@@ -4,6 +4,18 @@ Backend service built with **Node.js**, **Express**, and **MongoDB**. It shorten
 
 **Interactive API docs (Swagger UI):** after you start the server, open **`http://localhost:4000/api/docs`** (adjust host/port). Recruiters can explore every endpoint, schemas, and try requests without reading this file first.
 
+### React frontend (separate app)
+
+A full UI lives in **`url-shortener-web/`** (Vite + React). It is **not** mixed into the API codebase. Run the API on port **4000**, then:
+
+```bash
+cd url-shortener-web
+npm install
+npm run dev
+```
+
+Open **http://localhost:5173** — the dev server proxies `/api` and `/health` to the backend. See **`url-shortener-web/README.md`** for details.
+
 ---
 
 ## What this project demonstrates
